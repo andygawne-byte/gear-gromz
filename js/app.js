@@ -394,7 +394,16 @@ async function analyzeGearPhoto(base64Image, userApiKey) {
   const apiKey = (userApiKey || getSavedGeminiKey() || '').trim();
 
   if (apiKey) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    // AQ. keys = new Google AI Studio format → use as Bearer token
+    // AIzaSy keys = classic format → use as URL query param
+    const isBearer = apiKey.startsWith('AQ.');
+    const url = isBearer
+      ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`
+      : `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (isBearer) headers['Authorization'] = `Bearer ${apiKey}`;
+
     const promptText = `Analyze this outdoor gear photo. Return ONLY a valid raw JSON object:
     {
       "category": "Bikes | Ski/Snowboard | Outerwear/Apparel | Boots/Footwear | Water Sports | Camping/Backpacking",
@@ -409,21 +418,28 @@ async function analyzeGearPhoto(base64Image, userApiKey) {
     }`;
 
     try {
+      console.log('🤖 Sending to Gemini API. Key type:', isBearer ? 'Bearer (AQ.)' : 'API Key (AIzaSy)');
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           contents: [{ parts: [{ text: promptText }, { inline_data: { mime_type: "image/jpeg", data: base64Image.split(',')[1] || base64Image } }] }]
         })
       });
       const result = await res.json();
+      console.log('🤖 Gemini API full response:', JSON.stringify(result));
+      if (result.error) {
+        console.error('❌ Gemini API Error:', result.error.message);
+        alert(`⚠️ Gemini API Error: ${result.error.message}\n\nGet a free Gemini key at:\nhttps://aistudio.google.com/app/apikey`);
+        return null;
+      }
       if (result.candidates && result.candidates[0]) {
         const textResp = result.candidates[0].content.parts[0].text;
         const jsonMatch = textResp.match(/\{[\s\S]*\}/);
         if (jsonMatch) return JSON.parse(jsonMatch[0]);
       }
     } catch (err) {
-      console.warn('Live Gemini API request returned fallback:', err);
+      console.warn('Live Gemini API request network error:', err);
     }
   }
 
