@@ -174,6 +174,7 @@ const SAMPLE_DATA = {
       parent_name: 'Andy Gawne',
       child_name: 'Elliot Gawne',
       birth_date: '2017-04-12',
+      gender: 'boy',
       current_height__in_: 50.0,
       current_weight__lbs_: 58.0,
       foot_length__in_: 8.2,
@@ -184,6 +185,7 @@ const SAMPLE_DATA = {
       parent_name: 'Alex',
       child_name: 'Ava',
       birth_date: '2018-09-20',
+      gender: 'girl',
       current_height__in_: 45.0,
       current_weight__lbs_: 44.0,
       foot_length__in_: 7.1,
@@ -295,64 +297,176 @@ async function postNewGrom(gromObj) {
 }
 
 // --- 3. PREDICTIVE GROWTH MATCHER ENGINE ---
+
+// Bike wheel-size height ranges (evidence-based)
+const BIKE_WHEEL_HEIGHTS = [
+  { wheel: 12, min: 28, max: 37 },
+  { wheel: 14, min: 35, max: 42 },
+  { wheel: 16, min: 38, max: 46 },
+  { wheel: 18, min: 42, max: 50 },
+  { wheel: 20, min: 44, max: 54 },
+  { wheel: 24, min: 50, max: 58 },
+  { wheel: 26, min: 55, max: 65 },
+  { wheel: 27, min: 58, max: 68 },
+  { wheel: 29, min: 60, max: 78 }
+];
+
+function getBikeHeightRange(item) {
+  // Look for wheel size in model, size_label, or subcategory
+  const searchStr = `${item.model || ''} ${item.size_label || ''} ${item.subcategory || ''}`.toLowerCase();
+  for (const entry of BIKE_WHEEL_HEIGHTS) {
+    if (searchStr.includes(`${entry.wheel}"`) || searchStr.includes(`${entry.wheel}in`) || searchStr.includes(`${entry.wheel} `) || searchStr.includes(`${entry.wheel}cm`)) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+// CDC height-for-age percentile data (boys & girls, age 2-14)
+// Each entry: [ageMonths, p5, p25, p50, p75, p95] in inches
+const CDC_HEIGHT_BOYS = [
+  [24,32.9,34.2,35.0,35.8,37.1],[30,34.5,35.9,36.7,37.5,38.8],[36,35.9,37.3,38.2,39.1,40.5],
+  [48,38.3,39.8,40.8,41.8,43.4],[60,40.6,42.2,43.3,44.4,46.1],[72,42.8,44.5,45.7,46.9,48.7],
+  [84,44.9,46.7,48.0,49.3,51.3],[96,47.0,48.9,50.4,51.9,54.0],[108,49.0,51.1,52.7,54.3,56.6],
+  [120,51.1,53.3,55.0,56.8,59.2],[132,53.1,55.5,57.4,59.3,61.8],[144,55.1,57.7,59.7,61.8,64.5],
+  [156,57.2,60.0,62.2,64.5,67.3],[168,59.6,62.5,64.9,67.3,70.2]
+];
+const CDC_HEIGHT_GIRLS = [
+  [24,32.6,33.9,34.7,35.5,36.8],[30,34.2,35.6,36.5,37.4,38.8],[36,35.7,37.1,38.1,39.1,40.5],
+  [48,38.1,39.7,40.7,41.7,43.2],[60,40.4,42.1,43.2,44.3,46.0],[72,42.6,44.4,45.6,46.8,48.7],
+  [84,44.7,46.7,48.0,49.3,51.3],[96,46.8,48.9,50.4,51.9,54.2],[108,48.9,51.1,52.8,54.5,57.1],
+  [120,51.0,53.4,55.2,57.0,59.8],[132,53.2,55.8,57.8,59.8,62.7],[144,55.4,58.1,60.2,62.4,65.5],
+  [156,57.3,60.2,62.4,64.7,67.9],[168,58.5,61.5,63.8,66.2,69.5]
+];
+
+function getAgeMonths(birthDate) {
+  if (!birthDate) return 0;
+  const birth = new Date(birthDate);
+  const now = new Date();
+  return Math.floor((now - birth) / (1000 * 60 * 60 * 24 * 30.44));
+}
+
+function getHeightPercentile(birthDate, heightIn, gender) {
+  const ageMonths = getAgeMonths(birthDate);
+  const table = (gender === 'girl') ? CDC_HEIGHT_GIRLS : CDC_HEIGHT_BOYS;
+  // Find closest age bracket
+  let closest = table[0];
+  for (const row of table) {
+    if (Math.abs(row[0] - ageMonths) < Math.abs(closest[0] - ageMonths)) closest = row;
+  }
+  const [, p5, p25, p50, p75, p95] = closest;
+  if (heightIn <= p5) return { percentile: 5, label: '~5th', p5, p25, p50, p75, p95, ageMonths };
+  if (heightIn <= p25) return { percentile: Math.round(5 + ((heightIn - p5) / (p25 - p5)) * 20), label: `~${Math.round(5 + ((heightIn - p5) / (p25 - p5)) * 20)}th`, p5, p25, p50, p75, p95, ageMonths };
+  if (heightIn <= p50) return { percentile: Math.round(25 + ((heightIn - p25) / (p50 - p25)) * 25), label: `~${Math.round(25 + ((heightIn - p25) / (p50 - p25)) * 25)}th`, p5, p25, p50, p75, p95, ageMonths };
+  if (heightIn <= p75) return { percentile: Math.round(50 + ((heightIn - p50) / (p75 - p50)) * 25), label: `~${Math.round(50 + ((heightIn - p50) / (p75 - p50)) * 25)}th`, p5, p25, p50, p75, p95, ageMonths };
+  if (heightIn <= p95) return { percentile: Math.round(75 + ((heightIn - p75) / (p95 - p75)) * 20), label: `~${Math.round(75 + ((heightIn - p75) / (p95 - p75)) * 20)}th`, p5, p25, p50, p75, p95, ageMonths };
+  return { percentile: 97, label: '>95th', p5, p25, p50, p75, p95, ageMonths };
+}
+
 function calculateGearFit(item, grom) {
   if (!grom) return { fit: 'NONE', label: '' };
 
   const curHeight = parseFloat(grom.current_height__in_) || 0;
   const curFoot = parseFloat(grom.foot_length__in_) || 0;
-  
   const proj6mHeight = curHeight + 1.4;
   const proj6mFoot = curFoot + 0.35;
 
-  const minH = parseFloat(item.min_height__in_) || 0;
-  const maxH = parseFloat(item.max_height__in_) || 999;
-
-  let isFitNow = false;
-  if (curHeight > 0 && minH > 0 && curHeight >= minH && curHeight <= maxH) {
-    isFitNow = true;
+  // Determine effective height range — use bike wheel lookup if no sheet data
+  let minH = parseFloat(item.min_height__in_) || 0;
+  let maxH = parseFloat(item.max_height__in_) || 0;
+  if (item.category === 'Bikes' && (!minH || !maxH)) {
+    const bikeRange = getBikeHeightRange(item);
+    if (bikeRange) { minH = bikeRange.min; maxH = bikeRange.max; }
   }
-  
+  if (!maxH) maxH = 999;
+
+  // HEIGHT FIT CHECK
+  let isFitNow = curHeight > 0 && minH > 0 && curHeight >= minH && curHeight <= maxH;
+  let isFit6m = !isFitNow && minH > 0 && proj6mHeight >= minH && proj6mHeight <= maxH && curHeight < minH;
+
+  // FOOTWEAR FIT CHECK
   let isFootwearFitNow = false;
-  if (curFoot > 0 && (item.category === 'Boots/Footwear' || item.category === 'Ski/Snowboard')) {
-    const footConv = convertFootLength(curFoot);
-    const itemMondo = parseFloat(item.size_label) || 0;
-    const gromMondo = parseFloat(footConv.mondo) || 0;
-    if (gromMondo > 0 && itemMondo > 0 && Math.abs(itemMondo - gromMondo) <= 0.8) {
-      isFootwearFitNow = true;
-    }
-  }
-
-  if (isFitNow || isFootwearFitNow) {
-    return {
-      fit: 'PERFECT_MATCH',
-      label: `⭐ FITS NOW (${grom.child_name.split(' ')[0]})`
-    };
-  }
-
-  let isFit6m = false;
-  if (minH > 0 && proj6mHeight >= minH && proj6mHeight <= maxH && curHeight < minH) {
-    isFit6m = true;
-  }
-
   let isFootwearFit6m = false;
   if (curFoot > 0 && (item.category === 'Boots/Footwear' || item.category === 'Ski/Snowboard')) {
+    const footConv = convertFootLength(curFoot);
     const projFootConv = convertFootLength(proj6mFoot);
     const itemMondo = parseFloat(item.size_label) || 0;
+    const gromMondo = parseFloat(footConv.mondo) || 0;
     const projMondo = parseFloat(projFootConv.mondo) || 0;
-    const curMondo = parseFloat(convertFootLength(curFoot).mondo) || 0;
-    if (projMondo > 0 && itemMondo > 0 && itemMondo >= curMondo && Math.abs(itemMondo - projMondo) <= 1.0) {
-      isFootwearFit6m = true;
-    }
+    if (gromMondo > 0 && itemMondo > 0 && Math.abs(itemMondo - gromMondo) <= 0.8) isFootwearFitNow = true;
+    if (!isFootwearFitNow && projMondo > 0 && itemMondo > 0 && itemMondo >= gromMondo && Math.abs(itemMondo - projMondo) <= 1.0) isFootwearFit6m = true;
   }
 
-  if (isFit6m || isFootwearFit6m) {
-    return {
-      fit: 'FUTURE_MATCH',
-      label: `⏳ FITS IN 6 MOS (Dec 2026)`
-    };
-  }
-
+  if (isFitNow || isFootwearFitNow) return { fit: 'PERFECT_MATCH', label: `⭐ FITS NOW (${grom.child_name.split(' ')[0]})` };
+  if (isFit6m || isFootwearFit6m) return { fit: 'FUTURE_MATCH', label: `⏳ FITS IN 6 MOS (Dec 2026)` };
   return { fit: 'NONE', label: '' };
+}
+
+// --- GROWTH CHART SVG RENDERER ---
+function renderGrowthChart(grom) {
+  const height = parseFloat(grom.current_height__in_) || 0;
+  if (!height) return '';
+  const gender = grom.gender || 'boy';
+  const percentData = getHeightPercentile(grom.birth_date, height, gender);
+  const proj6m = getHeightPercentile(grom.birth_date, height + 1.4, gender);
+  const { p5, p25, p50, p75, p95 } = percentData;
+
+  const W = 320, H = 160;
+  const PAD = { t: 16, r: 16, b: 28, l: 40 };
+  const chartW = W - PAD.l - PAD.r;
+  const chartH = H - PAD.t - PAD.b;
+
+  const minY = p5 - 2;
+  const maxY = p95 + 2;
+  function yPos(val) { return PAD.t + chartH - ((val - minY) / (maxY - minY)) * chartH; }
+
+  // X positions for "now" and "6mo"
+  const xNow = PAD.l + chartW * 0.38;
+  const x6m  = PAD.l + chartW * 0.72;
+
+  // Band heights
+  const y5 = yPos(p5), y25 = yPos(p25), y50 = yPos(p50), y75 = yPos(p75), y95 = yPos(p95);
+  const yNow = yPos(height);
+  const y6m  = yPos(height + 1.4);
+
+  const pctLabel = percentData.label;
+  const proj6mLabel = proj6m.label;
+
+  return `
+  <div style="margin-top:14px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <span style="font-size:12px; font-weight:700; color:#94a3b8;">📊 HEIGHT PERCENTILE CHART (CDC ${gender === 'girl' ? 'Girls' : 'Boys'})</span>
+      <span style="font-size:11px; font-weight:800; background:rgba(99,102,241,0.2); color:#818cf8; padding:2px 10px; border-radius:99px;">${pctLabel} percentile</span>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%; border-radius:8px; background:#0f172a;" xmlns="http://www.w3.org/2000/svg">
+      <!-- Band fills -->
+      <rect x="${PAD.l}" y="${y95}" width="${chartW}" height="${y5 - y95}" fill="rgba(99,102,241,0.06)" />
+      <rect x="${PAD.l}" y="${y75}" width="${chartW}" height="${y25 - y75}" fill="rgba(99,102,241,0.08)" />
+      <rect x="${PAD.l}" y="${y75}" width="${chartW}" height="${y50 - y75}" fill="rgba(99,102,241,0.06)" />
+      <!-- Band lines -->
+      <line x1="${PAD.l}" y1="${y95}" x2="${PAD.l + chartW}" y2="${y95}" stroke="#334155" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="${PAD.l}" y1="${y75}" x2="${PAD.l + chartW}" y2="${y75}" stroke="#334155" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="${PAD.l}" y1="${y50}" x2="${PAD.l + chartW}" y2="${y50}" stroke="#475569" stroke-width="1.5"/>
+      <line x1="${PAD.l}" y1="${y25}" x2="${PAD.l + chartW}" y2="${y25}" stroke="#334155" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="${PAD.l}" y1="${y5}" x2="${PAD.l + chartW}" y2="${y5}" stroke="#334155" stroke-width="1" stroke-dasharray="3,3"/>
+      <!-- Y labels -->
+      <text x="${PAD.l - 4}" y="${y95 + 4}" fill="#64748b" font-size="8" text-anchor="end">95th</text>
+      <text x="${PAD.l - 4}" y="${y75 + 4}" fill="#64748b" font-size="8" text-anchor="end">75th</text>
+      <text x="${PAD.l - 4}" y="${y50 + 4}" fill="#94a3b8" font-size="8" text-anchor="end">50th</text>
+      <text x="${PAD.l - 4}" y="${y25 + 4}" fill="#64748b" font-size="8" text-anchor="end">25th</text>
+      <text x="${PAD.l - 4}" y="${y5 + 4}" fill="#64748b" font-size="8" text-anchor="end">5th</text>
+      <!-- Connect now→6mo -->
+      <line x1="${xNow}" y1="${yNow}" x2="${x6m}" y2="${y6m}" stroke="#6366f1" stroke-width="2" stroke-dasharray="4,2"/>
+      <!-- Now dot -->
+      <circle cx="${xNow}" cy="${yNow}" r="6" fill="#22c55e" stroke="#fff" stroke-width="2"/>
+      <text x="${xNow}" y="${H - 10}" fill="#22c55e" font-size="9" text-anchor="middle" font-weight="bold">Now</text>
+      <text x="${xNow}" y="${yNow - 10}" fill="#22c55e" font-size="9" text-anchor="middle">${height}"</text>
+      <!-- 6mo dot -->
+      <circle cx="${x6m}" cy="${y6m}" r="6" fill="#818cf8" stroke="#fff" stroke-width="2"/>
+      <text x="${x6m}" y="${H - 10}" fill="#818cf8" font-size="9" text-anchor="middle" font-weight="bold">Dec '26</text>
+      <text x="${x6m}" y="${y6m - 10}" fill="#818cf8" font-size="9" text-anchor="middle">${(height + 1.4).toFixed(1)}"</text>
+    </svg>
+  </div>`;
 }
 
 // --- 4. AI PHOTO CATALOGING WITH UNIVERSAL KEY SUPPORT ---
@@ -394,15 +508,8 @@ async function analyzeGearPhoto(base64Image, userApiKey) {
   const apiKey = (userApiKey || getSavedGeminiKey() || '').trim();
 
   if (apiKey) {
-    // AQ. keys = new Google AI Studio format → use as Bearer token
-    // AIzaSy keys = classic format → use as URL query param
-    const isBearer = apiKey.startsWith('AQ.');
-    const url = isBearer
-      ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`
-      : `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-
-    const headers = { 'Content-Type': 'application/json' };
-    if (isBearer) headers['Authorization'] = `Bearer ${apiKey}`;
+    // All Google AI Studio API keys (both AIzaSy and AQ. formats) use ?key= URL param
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     const promptText = `Analyze this outdoor gear photo. Return ONLY a valid raw JSON object:
     {
@@ -418,16 +525,16 @@ async function analyzeGearPhoto(base64Image, userApiKey) {
     }`;
 
     try {
-      console.log('🤖 Sending to Gemini API. Key type:', isBearer ? 'Bearer (AQ.)' : 'API Key (AIzaSy)');
+      console.log('🤖 Sending to Gemini API with key prefix:', apiKey.substring(0, 6) + '...');
       const res = await fetch(url, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: promptText }, { inline_data: { mime_type: "image/jpeg", data: base64Image.split(',')[1] || base64Image } }] }]
         })
       });
       const result = await res.json();
-      console.log('🤖 Gemini API full response:', JSON.stringify(result));
+      console.log('🤖 Gemini API response:', JSON.stringify(result));
       if (result.error) {
         console.error('❌ Gemini API Error:', result.error.message);
         alert(`⚠️ Gemini API Error: ${result.error.message}\n\nGet a free Gemini key at:\nhttps://aistudio.google.com/app/apikey`);
@@ -439,20 +546,21 @@ async function analyzeGearPhoto(base64Image, userApiKey) {
         if (jsonMatch) return JSON.parse(jsonMatch[0]);
       }
     } catch (err) {
-      console.warn('Live Gemini API request network error:', err);
+      console.warn('Gemini API network error:', err);
     }
   }
 
+  // Fallback template
   return {
     category: 'Ski/Snowboard',
-    brand: 'Salomon',
-    model: 'QST Lux Jr',
-    size_label: '130cm',
-    min_height_in: 48,
-    max_height_in: 54,
-    bsl_mm: 265,
+    brand: '',
+    model: '',
+    size_label: '',
+    min_height_in: '',
+    max_height_in: '',
+    bsl_mm: '',
     condition: 'Good',
-    notes: 'Photo processed! (Review & adjust specs below)'
+    notes: 'Could not read photo. Please fill in details manually.'
   };
 }
 
@@ -698,57 +806,80 @@ function renderGromsView(container) {
     </div>
 
     ${selectedGrom.child_name ? `
+      <!-- MEASUREMENTS CARD -->
       <div style="padding: 0 16px; margin-bottom:16px;">
         <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); padding:16px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
             <span style="font-size:13px; font-weight:700; color:var(--accent-primary);">📏 CURRENT MEASUREMENTS</span>
-            <button id="btn-log-measurement" class="btn-secondary" style="font-size:11px; padding:4px 10px;">📏 Log New Height</button>
+            <button id="btn-log-measurement" class="btn-secondary" style="font-size:11px; padding:4px 10px;">📏 Log New</button>
           </div>
           <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; text-align:center;">
             <div style="background:#0f172a; padding:10px; border-radius:var(--radius-md);">
               <span style="font-size:10px; color:#94a3b8;">HEIGHT</span>
-              <div style="font-size:18px; font-weight:800; color:#fff;">${selectedGrom.current_height__in_ || '--'}"</div>
+              <div style="font-size:20px; font-weight:800; color:#fff;">${selectedGrom.current_height__in_ || '--'}"</div>
+              <div style="font-size:10px; color:#6366f1; margin-top:2px;">→ ${((parseFloat(selectedGrom.current_height__in_)||0)+1.4).toFixed(1)}" Dec</div>
             </div>
             <div style="background:#0f172a; padding:10px; border-radius:var(--radius-md);">
               <span style="font-size:10px; color:#94a3b8;">WEIGHT</span>
-              <div style="font-size:18px; font-weight:800; color:#fff;">${selectedGrom.current_weight__lbs_ || '--'} lbs</div>
+              <div style="font-size:20px; font-weight:800; color:#fff;">${selectedGrom.current_weight__lbs_ || '--'} lbs</div>
+              <div style="font-size:10px; color:#6366f1; margin-top:2px;">→ ${((parseFloat(selectedGrom.current_weight__lbs_)||0)+3.5).toFixed(0)} lbs Dec</div>
             </div>
             <div style="background:#0f172a; padding:10px; border-radius:var(--radius-md);">
-              <span style="font-size:10px; color:#94a3b8;">FOOT LENGTH</span>
-              <div style="font-size:18px; font-weight:800; color:var(--accent-emerald);">${selectedGrom.foot_length__in_ || '--'}"</div>
+              <span style="font-size:10px; color:#94a3b8;">FOOT</span>
+              <div style="font-size:20px; font-weight:800; color:var(--accent-emerald);">${selectedGrom.foot_length__in_ || '--'}"</div>
+              <div style="font-size:10px; color:#6366f1; margin-top:2px;">→ ${((parseFloat(selectedGrom.foot_length__in_)||0)+0.35).toFixed(2)}" Dec</div>
             </div>
           </div>
 
-          <div style="margin-top:14px; font-size:12px; font-weight:700; color:#94a3b8;">🥾 AUTOMATIC FOOTWEAR SIZING CONVERSIONS:</div>
-          <div class="conversion-card">
-            <div class="conversion-unit"><span class="unit-label">Mondo (Ski)</span><span class="unit-value">${footConv.mondo}</span></div>
-            <div class="conversion-unit"><span class="unit-label">US Kids</span><span class="unit-value">${footConv.usKids}</span></div>
-            <div class="conversion-unit"><span class="unit-label">EU Size</span><span class="unit-value">${footConv.eu}</span></div>
-            <div class="conversion-unit"><span class="unit-label">Crocs</span><span class="unit-value">${footConv.crocs}</span></div>
+          <!-- GROWTH CHART -->
+          ${renderGrowthChart(selectedGrom)}
+
+          <!-- SHOE CONVERSIONS NOW -->
+          <div style="margin-top:14px; font-size:12px; font-weight:700; color:#94a3b8;">🥾 SHOE SIZES NOW vs DEC 2026 FORECAST:</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px;">
+            <div style="background:#0f172a; border-radius:var(--radius-md); padding:10px;">
+              <div style="font-size:10px; color:#22c55e; font-weight:700; margin-bottom:6px;">🟢 TODAY</div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:11px;">
+                <div><span style="color:#64748b;">Mondo:</span> <strong style="color:#fff;">${footConv.mondo}</strong></div>
+                <div><span style="color:#64748b;">US Kids:</span> <strong style="color:#fff;">${footConv.usKids}</strong></div>
+                <div><span style="color:#64748b;">EU:</span> <strong style="color:#fff;">${footConv.eu}</strong></div>
+                <div><span style="color:#64748b;">Crocs:</span> <strong style="color:#fff;">${footConv.crocs}</strong></div>
+              </div>
+            </div>
+            <div style="background:#0f172a; border-radius:var(--radius-md); padding:10px; border:1px solid rgba(99,102,241,0.3);">
+              <div style="font-size:10px; color:#818cf8; font-weight:700; margin-bottom:6px;">🔮 DEC 2026</div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:11px;">
+                <div><span style="color:#64748b;">Mondo:</span> <strong style="color:#818cf8;">${convertFootLength((parseFloat(selectedGrom.foot_length__in_)||0)+0.35).mondo}</strong></div>
+                <div><span style="color:#64748b;">US Kids:</span> <strong style="color:#818cf8;">${convertFootLength((parseFloat(selectedGrom.foot_length__in_)||0)+0.35).usKids}</strong></div>
+                <div><span style="color:#64748b;">EU:</span> <strong style="color:#818cf8;">${convertFootLength((parseFloat(selectedGrom.foot_length__in_)||0)+0.35).eu}</strong></div>
+                <div><span style="color:#64748b;">Crocs:</span> <strong style="color:#818cf8;">${convertFootLength((parseFloat(selectedGrom.foot_length__in_)||0)+0.35).crocs}</strong></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
+      <!-- 6-MONTH GEAR FORECAST -->
       <div style="padding:0 16px; margin-bottom:16px;">
         <div style="background:linear-gradient(135deg, rgba(99,102,241,0.15), rgba(30,41,59,0.8)); border:1px solid var(--accent-indigo); border-radius:var(--radius-lg); padding:16px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
             <span style="font-size:14px; font-weight:800; color:#818cf8;">🔮 6-MONTH GEAR FORECAST (DEC 2026)</span>
-            <span style="font-size:11px; background:var(--accent-indigo); color:#fff; padding:2px 8px; border-radius:99px;">+1.4" Height Growth</span>
+            <span style="font-size:11px; background:var(--accent-indigo); color:#fff; padding:2px 8px; border-radius:99px;">+1.4" Height</span>
           </div>
-          <p style="font-size:12px; color:#cbd5e1; margin-bottom:10px;">Gear in the circle fleet that will fit ${selectedGrom.child_name.split(' ')[0]} in 6 months:</p>
+          <p style="font-size:12px; color:#cbd5e1; margin-bottom:10px;">Fleet gear that will fit ${selectedGrom.child_name.split(' ')[0]} by December:</p>
           ${futureFits.length > 0 ? `
             <div style="display:flex; flex-direction:column; gap:8px;">
               ${futureFits.map(item => `
                 <div style="background:#0f172a; padding:10px 12px; border-radius:var(--radius-md); display:flex; justify-content:space-between; align-items:center;">
                   <div>
                     <strong style="font-size:13px; color:#fff;">${item.brand} ${item.model}</strong>
-                    <div style="font-size:11px; color:#94a3b8;">${item.category} • Size: ${item.size_label} • Owner: ${item.owner}</div>
+                    <div style="font-size:11px; color:#94a3b8;">${item.category} • ${item.size_label} • Owner: ${item.owner}</div>
                   </div>
                   <span style="font-size:11px; font-weight:700; color:var(--accent-indigo);">Ready Dec '26</span>
                 </div>
               `).join('')}
             </div>
-          ` : `<div style="font-size:12px; color:#94a3b8; font-style:italic;">No upcoming gear transitions detected for the 6-month window yet.</div>`}
+          ` : `<div style="font-size:12px; color:#94a3b8; font-style:italic;">No upcoming gear transitions in the 6-month window yet.</div>`}
         </div>
       </div>
 
@@ -770,7 +901,7 @@ function renderGromsView(container) {
   if (select) {
     select.addEventListener('change', (e) => {
       selectedGromId = e.target.value;
-      renderGromsView(container);
+      renderView(); // re-render full view so header name + all panels update
     });
   }
 
@@ -1091,7 +1222,16 @@ function openAddGromModal() {
     <form id="add-grom-form">
       <div class="form-group"><label>Child Name</label><input type="text" id="grom-name" class="form-input" placeholder="e.g. Elliot Gawne" required></div>
       <div class="form-group"><label>Parent Name</label><input type="text" id="grom-parent" class="form-input" placeholder="e.g. Andy Gawne" required></div>
-      <div class="form-group"><label>Birth Date</label><input type="date" id="grom-dob" class="form-input" required></div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div class="form-group"><label>Birth Date</label><input type="date" id="grom-dob" class="form-input" required></div>
+        <div class="form-group">
+          <label>Gender (for growth chart)</label>
+          <select id="grom-gender" class="form-select" required>
+            <option value="boy">Boy</option>
+            <option value="girl">Girl</option>
+          </select>
+        </div>
+      </div>
       
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
         <div class="form-group"><label>Current Height (in)</label><input type="number" step="0.5" id="grom-height" class="form-input" placeholder="46.0" required></div>
@@ -1114,6 +1254,7 @@ function openAddGromModal() {
       child_name: document.getElementById('grom-name').value,
       parent_name: document.getElementById('grom-parent').value,
       birth_date: document.getElementById('grom-dob').value,
+      gender: document.getElementById('grom-gender').value,
       current_height__in_: parseFloat(document.getElementById('grom-height').value),
       current_weight__lbs_: parseFloat(document.getElementById('grom-weight').value) || 0,
       foot_length__in_: parseFloat(document.getElementById('grom-foot').value),
