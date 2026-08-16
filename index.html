@@ -2,66 +2,65 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Gear Gromz — Community Outdoor Fleet</title>
-  <link rel="stylesheet" href="css/styles.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gear Gromz — Shared Fleet & Predictive Sizing Hub</title>
+  <link rel="stylesheet" href="css/styles.css?v=1.1">
   <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#0f172a">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-
-  <!-- APP HEADER -->
+  <!-- TOP APP BAR -->
   <header class="app-header">
-    <div class="brand">
-      <span class="brand-icon">⚡</span>
-      <h1 class="brand-title">Gear Gromz</h1>
+    <div class="header-left">
+      <span class="app-logo">⚙️</span>
+      <div>
+        <h1 class="app-title">Gear Gromz</h1>
+        <p class="app-subtitle">Circle Fleet & Predictive Sizing</p>
+      </div>
     </div>
-    <button id="api-status-btn" class="api-status-btn">
-      <span class="status-dot"></span>
-      <span id="api-status-label">Demo Mode</span>
-    </button>
+    <div class="header-right">
+      <button id="api-status-btn" class="api-status-pill">
+        <span class="status-dot"></span>
+        <span id="api-status-label">Demo Mode</span>
+      </button>
+    </div>
   </header>
 
-  <!-- MAIN DYNAMIC CONTENT CONTAINER -->
-  <main id="main-content">
-    <div style="text-align:center; padding:40px; color:#94a3b8;">
-      🔄 Loading Gear Gromz Fleet...
-    </div>
+  <!-- MAIN APP CONTAINER -->
+  <main id="main-content" class="main-container">
+    <!-- Views rendered dynamically via js/app.js -->
   </main>
 
-  <!-- BOTTOM MOBILE NAVIGATION BAR -->
+  <!-- BOTTOM NAVIGATION BAR (PWA STANDARD) -->
   <nav class="bottom-nav">
     <a href="#" class="nav-item active" data-tab="dashboard">
       <span class="nav-icon">🚲</span>
-      <span>Dashboard</span>
+      <span class="nav-label">Fleet</span>
     </a>
     <a href="#" class="nav-item" data-tab="groms">
       <span class="nav-icon">👦</span>
-      <span>The Groms</span>
+      <span class="nav-label">Groms</span>
     </a>
     <a href="#" class="nav-item" data-tab="consumables">
       <span class="nav-icon">📦</span>
-      <span>Consumables</span>
+      <span class="nav-label">Depot</span>
     </a>
     <a href="#" class="nav-item" data-tab="add">
       <span class="nav-icon">➕</span>
-      <span>Add Gear</span>
+      <span class="nav-label">Add Gear</span>
     </a>
   </nav>
 
-  <!-- MODAL / DRAWER OVERLAY -->
+  <!-- MODAL DRAWER OVERLAY -->
   <div id="modal-overlay" class="modal-overlay">
     <div id="modal-content" class="modal-content">
-      <!-- Dynamic modal content inserted here -->
+      <!-- Modal body dynamically inserted -->
     </div>
   </div>
 
-  <script src="js/app.js"></script>
-
+  <!-- CONSOLIDATED SCRIPT WITH CACHE-BUSTER -->
+  <script src="js/app.js?v=1.1"></script>
 </body>
 </html>
