@@ -1,7 +1,7 @@
-// CONSOLIDATED SINGLE-FILE SCRIPT FOR GEAR GROMZ PWA (With Robust Google Apps Script CORS POST Handler)
+// CONSOLIDATED SINGLE-FILE SCRIPT FOR GEAR GROMZ PWA (With Updated Apps Script Web App API Endpoint)
 
 // --- DEFAULT GOOGLE SHEETS API ENDPOINT ---
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbykdKbLcs6lAvatxWP23uCAjFlsmrLO1q1FShXxzW-iajotjKNKuGeX9ycg30losPJ2sg/exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxymZKW8x6-FKpzG9P8ZM2oxK_nyO7aMZdyaCTcYNPnUE_vWfAGiL-L81oppE9voUxeaw/exec';
 const LOCAL_STORAGE_URL_KEY = 'geargromz_apps_script_url';
 
 function getSavedApiUrl() {
@@ -234,7 +234,6 @@ async function fetchAllData() {
   }
 }
 
-// Robust Google Apps Script POST helper (uses text/plain header to bypass CORS pre-flight blocking)
 async function sendAppsScriptPost(payloadObj) {
   const url = getSavedApiUrl();
   if (!url) return { success: true };
@@ -253,7 +252,6 @@ async function sendAppsScriptPost(payloadObj) {
     }
   } catch (err) {
     console.error('Error posting to Apps Script:', err);
-    // Fallback using no-cors mode if standard CORS fetch fails
     try {
       await fetch(url, {
         method: 'POST',
@@ -1010,6 +1008,7 @@ function openEditGearModal(item) {
     item.notes_upgrades = document.getElementById('edit-notes').value;
 
     await postEditGear({
+      item_id: item.item_id,
       category: item.category,
       brand: item.brand,
       model: item.model,
