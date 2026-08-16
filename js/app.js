@@ -1,4 +1,4 @@
-// CONSOLIDATED SINGLE-FILE SCRIPT FOR GEAR GROMZ PWA (With Edit Gear, Add Grom, Add Consumable & 6-Month Predictive Sizing)
+// CONSOLIDATED SINGLE-FILE SCRIPT FOR GEAR GROMZ PWA (With Cross-Platform SMS & Copy Request Feature)
 
 // --- 1. SIZING CONVERTER UTILITY ---
 function convertFootLength(lengthInInches) {
@@ -268,21 +268,19 @@ async function postNewGear(gearObj) {
   }
 }
 
-// --- 3. PREDICTIVE GROWTH MATCHER ENGINE (NOW VS 6 MONTHS) ---
+// --- 3. PREDICTIVE GROWTH MATCHER ENGINE ---
 function calculateGearFit(item, grom) {
   if (!grom) return { fit: 'NONE', label: '' };
 
   const curHeight = parseFloat(grom.current_height__in_) || 0;
   const curFoot = parseFloat(grom.foot_length__in_) || 0;
   
-  // 6 Months Projections: Kids grow ~1.4 inches in height & ~0.35 inches in foot length over 6 months
   const proj6mHeight = curHeight + 1.4;
   const proj6mFoot = curFoot + 0.35;
 
   const minH = parseFloat(item.min_height__in_) || 0;
   const maxH = parseFloat(item.max_height__in_) || 999;
 
-  // 1. Check FIT NOW
   let isFitNow = false;
   if (curHeight > 0 && minH > 0 && curHeight >= minH && curHeight <= maxH) {
     isFitNow = true;
@@ -305,7 +303,6 @@ function calculateGearFit(item, grom) {
     };
   }
 
-  // 2. Check 6-MONTH PREDICTIVE FIT
   let isFit6m = false;
   if (minH > 0 && proj6mHeight >= minH && proj6mHeight <= maxH && curHeight < minH) {
     isFit6m = true;
@@ -386,7 +383,7 @@ async function analyzeGearPhoto(base64Image, apiKey) {
 let appData = { inventory: [], groms: [], consumables: [], members: [] };
 let currentTab = 'dashboard';
 let selectedCategory = 'ALL';
-let fitFilter = 'ALL'; // 'ALL', 'NOW', 'FUTURE'
+let fitFilter = 'ALL';
 let searchQuery = '';
 let selectedGromId = '';
 
@@ -602,13 +599,11 @@ function getStatusClass(status) {
   return 'status-available';
 }
 
-// --- GROMS VIEW (WITH ADD GROM & LOG MEASUREMENT) ---
 function renderGromsView(container) {
   const wrapper = document.createElement('div');
   const selectedGrom = (appData.groms || []).find(g => g.grom_id === selectedGromId) || (appData.groms[0] || {});
   const footConv = convertFootLength(selectedGrom.foot_length__in_ || 0);
 
-  // Find 6-Month Future Fits for this grom
   const futureFits = (appData.inventory || []).filter(item => calculateGearFit(item, selectedGrom).fit === 'FUTURE_MATCH');
 
   wrapper.innerHTML = `
@@ -657,7 +652,6 @@ function renderGromsView(container) {
         </div>
       </div>
 
-      <!-- 6-Month Predictive Forecast Radar -->
       <div style="padding:0 16px; margin-bottom:16px;">
         <div style="background:linear-gradient(135deg, rgba(99,102,241,0.15), rgba(30,41,59,0.8)); border:1px solid var(--accent-indigo); border-radius:var(--radius-lg); padding:16px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -706,7 +700,6 @@ function renderGromsView(container) {
   renderGearGrid();
 }
 
-// --- CONSUMABLES VIEW (WITH ADD CONSUMABLE) ---
 function renderConsumablesView(container) {
   const wrapper = document.createElement('div');
   wrapper.style.padding = '16px';
@@ -878,20 +871,25 @@ function renderAddGearView(container) {
   });
 }
 
-// --- GEAR DETAIL MODAL (WITH EDIT GEAR FEATURE) ---
+// --- GEAR DETAIL MODAL (WITH ROBUST CROSS-PLATFORM SMS & COPY BUTTON) ---
 function openGearDetailModal(item) {
   const overlay = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
 
-  const ownerPhone = item.phone || '12065550199';
-  const smsBody = encodeURIComponent(`Hey ${item.owner}! Can I borrow the ${item.brand} ${item.model} for our upcoming trip?`);
-  const smsUrl = `sms:${ownerPhone}?body=${smsBody}`;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const separator = isIOS ? '&' : '?';
+  const ownerPhone = item.phone || item.owner_phone || '';
+  const requestMsg = `Hey ${item.owner}! Can I borrow the ${item.brand} ${item.model} (${item.size_label || ''}) for our upcoming trip?`;
+  
+  const smsUrl = ownerPhone 
+    ? `sms:${ownerPhone}${separator}body=${encodeURIComponent(requestMsg)}`
+    : `sms:${separator}body=${encodeURIComponent(requestMsg)}`;
 
   content.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <span class="status-badge ${getStatusClass(item.status)}">${item.status || '🟢 Available'}</span>
       <div>
-        <button id="modal-edit-gear-btn" class="btn-secondary" style="font-size:12px; padding:4px 10px; margin-right:8px;">✏️ Edit</button>
+        <button id="modal-edit-gear-btn" class="btn-secondary" style="font-size:12px; padding:4px 10px; margin-right:8px;">✏️ Edit Specs</button>
         <button id="modal-close-btn" style="background:none; border:none; color:#94a3b8; font-size:24px; cursor:pointer;">✕</button>
       </div>
     </div>
@@ -914,11 +912,14 @@ function openGearDetailModal(item) {
       ${item.notes_upgrades ? `<div style="margin-top:12px; pt-12; border-top:1px solid #1e293b; font-size:13px; color:#cbd5e1;">📝 ${item.notes_upgrades}</div>` : ''}
     </div>
 
-    ${item.status && item.status.includes('In Use') ? `
-      <button id="btn-queue" class="btn-primary" style="background:var(--accent-amber);">⏳ Queue Next For Return</button>
-    ` : `
-      <a href="${smsUrl}" class="btn-primary" style="text-decoration:none;">📱 1-Click Request via SMS</a>
-    `}
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      ${item.status && item.status.includes('In Use') ? `
+        <button id="btn-queue" class="btn-primary" style="background:var(--accent-amber);">⏳ Queue Next For Return</button>
+      ` : `
+        <a href="${smsUrl}" class="btn-primary" style="text-decoration:none;">📱 1-Click Send SMS Request</a>
+        <button id="btn-copy-sms" class="btn-secondary" style="font-size:13px; padding:10px; width:100%;">📋 Copy Borrow Request Text</button>
+      `}
+    </div>
   `;
 
   overlay.classList.add('active');
@@ -926,6 +927,15 @@ function openGearDetailModal(item) {
   document.getElementById('modal-close-btn').addEventListener('click', () => overlay.classList.remove('active'));
 
   document.getElementById('modal-edit-gear-btn').addEventListener('click', () => openEditGearModal(item));
+
+  const btnCopy = document.getElementById('btn-copy-sms');
+  if (btnCopy) {
+    btnCopy.addEventListener('click', () => {
+      navigator.clipboard.writeText(requestMsg);
+      btnCopy.textContent = '✅ Copied Request Text to Clipboard!';
+      setTimeout(() => btnCopy.textContent = '📋 Copy Borrow Request Text', 2000);
+    });
+  }
 
   const btnQueue = document.getElementById('btn-queue');
   if (btnQueue) {
@@ -994,7 +1004,6 @@ function openEditGearModal(item) {
   });
 }
 
-// --- ADD GROM MODAL ---
 function openAddGromModal() {
   const overlay = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
@@ -1045,7 +1054,6 @@ function openAddGromModal() {
   });
 }
 
-// --- LOG MEASUREMENT MODAL ---
 function openLogMeasurementModal(grom) {
   const overlay = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
@@ -1083,7 +1091,6 @@ function openLogMeasurementModal(grom) {
   });
 }
 
-// --- ADD CONSUMABLE MODAL ---
 function openAddConsumableModal() {
   const overlay = document.getElementById('modal-overlay');
   const content = document.getElementById('modal-content');
